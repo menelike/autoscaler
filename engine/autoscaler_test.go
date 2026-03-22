@@ -416,6 +416,154 @@ func Test_isAgentIdle(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, idle)
 	})
+
+}
+
+func Test_isWithinBillingWindow(t *testing.T) {
+	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+
+	t.Run("should return true when well within billing interval", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			config: &config.Config{
+				BillingInterval: time.Hour,
+				BillingBuffer:   time.Minute * 5,
+			},
+		}
+
+		// Agent created 20 min ago — 40 min left in billing hour
+		result := autoscaler.isWithinBillingWindow(&woodpecker.Agent{
+			Name:    "pool-1-agent-1",
+			Created: time.Now().Add(-time.Minute * 20).Unix(),
+		})
+		assert.True(t, result, "should keep agent — 40 min remaining in billing hour")
+	})
+
+	t.Run("should return false near billing boundary", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			config: &config.Config{
+				BillingInterval: time.Hour,
+				BillingBuffer:   time.Minute * 5,
+			},
+		}
+
+		// Agent created 57 min ago — 3 min left (within 5 min buffer)
+		result := autoscaler.isWithinBillingWindow(&woodpecker.Agent{
+			Name:    "pool-1-agent-1",
+			Created: time.Now().Add(-time.Minute * 57).Unix(),
+		})
+		assert.False(t, result, "should allow teardown — only 3 min left in billing hour")
+	})
+
+	t.Run("should return false when not configured", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			config: &config.Config{},
+		}
+
+		result := autoscaler.isWithinBillingWindow(&woodpecker.Agent{
+			Name:    "pool-1-agent-1",
+			Created: time.Now().Add(-time.Minute * 20).Unix(),
+		})
+		assert.False(t, result, "should not apply — no billing interval configured")
+	})
+
+	t.Run("should work across billing boundaries", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			config: &config.Config{
+				BillingInterval: time.Hour,
+				BillingBuffer:   time.Minute * 5,
+			},
+		}
+
+		// Agent created 80 min ago — 80 % 60 = 20 min into 2nd cycle, 40 min remaining
+		result := autoscaler.isWithinBillingWindow(&woodpecker.Agent{
+			Name:    "pool-1-agent-1",
+			Created: time.Now().Add(-time.Minute * 80).Unix(),
+		})
+		assert.True(t, result, "should keep agent — 40 min remaining in 2nd billing hour")
+	})
+
+	t.Run("should keep agent alive when idle timeout crosses billing boundary", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			config: &config.Config{
+				BillingInterval: time.Hour,
+				BillingBuffer:   time.Minute * 5,
+			},
+		}
+
+		// Agent created 63 min ago — job finished at min 58, idle timeout passed at min 63.
+		// Now 3 min into the 2nd billing hour, 57 min remaining.
+		// Should keep alive to maximize the new billing cycle.
+		result := autoscaler.isWithinBillingWindow(&woodpecker.Agent{
+			Name:    "pool-1-agent-1",
+			Created: time.Now().Add(-time.Minute * 63).Unix(),
+		})
+		assert.True(t, result, "should keep agent — 57 min remaining in 2nd billing hour")
+	})
+
+	t.Run("should respect custom buffer", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			config: &config.Config{
+				BillingInterval: time.Hour,
+				BillingBuffer:   time.Minute * 10,
+			},
+		}
+
+		// Agent created 52 min ago — 8 min left, within 10 min buffer
+		result := autoscaler.isWithinBillingWindow(&woodpecker.Agent{
+			Name:    "pool-1-agent-1",
+			Created: time.Now().Add(-time.Minute * 52).Unix(),
+		})
+		assert.False(t, result, "should allow teardown — 8 min left with 10 min buffer")
+	})
+
+	t.Run("should allow teardown when remaining equals buffer exactly", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			config: &config.Config{
+				BillingInterval: time.Hour,
+				BillingBuffer:   time.Minute * 5,
+			},
+		}
+
+		// Agent created 55 min ago — exactly 5 min left == buffer
+		result := autoscaler.isWithinBillingWindow(&woodpecker.Agent{
+			Name:    "pool-1-agent-1",
+			Created: time.Now().Add(-time.Minute * 55).Unix(),
+		})
+		assert.False(t, result, "should allow teardown — remaining equals buffer exactly")
+	})
+
+	t.Run("should allow teardown at exact billing boundary", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			config: &config.Config{
+				BillingInterval: time.Hour,
+				BillingBuffer:   time.Minute * 5,
+			},
+		}
+
+		// Agent created exactly 60 min ago — 0 remaining (new cycle just started, but remaining wraps to ~60min)
+		// 60 min % 60 min = 0 elapsed, remaining = 60 min — this is the start of a new cycle
+		result := autoscaler.isWithinBillingWindow(&woodpecker.Agent{
+			Name:    "pool-1-agent-1",
+			Created: time.Now().Add(-time.Hour).Unix(),
+		})
+		assert.True(t, result, "should keep alive — just entered new billing cycle, 60 min remaining")
+	})
+
+	t.Run("should keep alive when just created", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			config: &config.Config{
+				BillingInterval: time.Hour,
+				BillingBuffer:   time.Minute * 5,
+			},
+		}
+
+		// Agent just created — full hour remaining
+		result := autoscaler.isWithinBillingWindow(&woodpecker.Agent{
+			Name:    "pool-1-agent-1",
+			Created: time.Now().Unix(),
+		})
+		assert.True(t, result, "should keep alive — just created, full billing hour remaining")
+	})
 }
 
 func Test_drainAgents(t *testing.T) {

@@ -122,6 +122,12 @@ func (a *Autoscaler) drainAgents(_ context.Context, amount int) error {
 				continue
 			}
 
+			// agent is still within a paid billing cycle — keep it schedulable
+			// so it can accept more work instead of sitting idle
+			if a.isWithinBillingWindow(agent) {
+				continue
+			}
+
 			log.Info().Str("agent", agent.Name).Msg("drain agent")
 			agent.NoSchedule = true
 			_, err := a.client.AgentUpdate(agent)
@@ -152,6 +158,28 @@ func (a *Autoscaler) isAgentIdle(agent *woodpecker.Agent) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// isWithinBillingWindow returns true if the agent is still within a paid
+// billing cycle and should be kept alive to accept more work.
+func (a *Autoscaler) isWithinBillingWindow(agent *woodpecker.Agent) bool {
+	if a.config.BillingInterval <= 0 {
+		return false
+	}
+
+	age := time.Since(time.Unix(agent.Created, 0))
+	elapsed := age % a.config.BillingInterval
+	remaining := a.config.BillingInterval - elapsed
+
+	if remaining > a.config.BillingBuffer {
+		log.Debug().
+			Str("agent", agent.Name).
+			Str("remaining", remaining.String()).
+			Msg("keeping agent schedulable until billing boundary")
+		return true
+	}
+
+	return false
 }
 
 func (a *Autoscaler) removeAgent(ctx context.Context, agent *woodpecker.Agent, reason string) error {

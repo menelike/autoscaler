@@ -90,6 +90,18 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("can't parse agent-idle-timeout: %w", err)
 	}
 
+	if billingInterval := cmd.String("billing-interval"); billingInterval != "" {
+		config.BillingInterval, err = time.ParseDuration(billingInterval)
+		if err != nil {
+			return fmt.Errorf("can't parse billing-interval: %w", err)
+		}
+
+		config.BillingBuffer, err = time.ParseDuration(cmd.String("billing-buffer"))
+		if err != nil {
+			return fmt.Errorf("can't parse billing-buffer: %w", err)
+		}
+	}
+
 	reconciliationInterval, err := time.ParseDuration(cmd.String("reconciliation-interval"))
 	if err != nil {
 		return fmt.Errorf("can't parse reconciliation-interval: %w", err)

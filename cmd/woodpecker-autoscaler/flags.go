@@ -108,6 +108,18 @@ var flags = []cli.Flag{
 		Sources: cli.EnvVars("WOODPECKER_AGENT_ENV"),
 	},
 	&cli.StringFlag{
+		Name:    "billing-interval",
+		Value:   "",
+		Usage:   "provider billing interval (e.g. '1h' for hourly). Agents are kept alive until the billing boundary buffer before the next cycle. Disabled when empty.",
+		Sources: cli.EnvVars("WOODPECKER_BILLING_INTERVAL"),
+	},
+	&cli.StringFlag{
+		Name:    "billing-buffer",
+		Value:   "5m",
+		Usage:   "time before the billing boundary to start tearing down the agent (default: 5m)",
+		Sources: cli.EnvVars("WOODPECKER_BILLING_BUFFER"),
+	},
+	&cli.StringFlag{
 		Name:    "filter-labels",
 		Value:   "",
 		Usage:   "filter for specific tasks using labels",
