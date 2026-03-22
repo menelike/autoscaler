@@ -309,7 +309,11 @@ func (a *Autoscaler) getQueueInfo(_ context.Context) (freeTasks, runningTasks, p
 	running := countTasksByLabel(queueInfo.Running, labelFilterKey, labelFilterValue)
 	pending := countTasksByLabel(queueInfo.Pending, labelFilterKey, labelFilterValue)
 
-	return queueInfo.Stats.Workers, running, pending, nil
+	// When filtering by labels, don't count global workers as free capacity.
+	// Non-pool agents (e.g. a homelab agent with different labels) inflate the
+	// worker count, causing the autoscaler to think there's enough capacity
+	// when no pool agent can actually handle the filtered tasks.
+	return 0, running, pending, nil
 }
 
 func (a *Autoscaler) calcAgents(ctx context.Context) (float64, error) {
