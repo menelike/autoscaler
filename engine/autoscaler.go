@@ -344,7 +344,34 @@ func (a *Autoscaler) getQueueInfo(_ context.Context) (freeTasks, runningTasks, p
 		return 0, 0, 0, fmt.Errorf("error from QueueInfo: %s", err.Error())
 	}
 
-	return queueInfo.Stats.Workers, queueInfo.Stats.Running, queueInfo.Stats.Pending, nil
+	if len(a.config.ExtraAgentLabels) == 0 {
+		return queueInfo.Stats.Workers, queueInfo.Stats.Running, queueInfo.Stats.Pending, nil
+	}
+
+	// Queue statistics are global and include agents and tasks from unrelated
+	// pools. When this pool declares labels, only count tasks it can execute and
+	// do not let a differently labelled agent satisfy its available capacity.
+	return 0,
+		countTasksMatchingLabels(queueInfo.Running, a.config.ExtraAgentLabels),
+		countTasksMatchingLabels(queueInfo.Pending, a.config.ExtraAgentLabels),
+		nil
+}
+
+func countTasksMatchingLabels(tasks []woodpecker.Task, labels map[string]string) int {
+	count := 0
+	for _, task := range tasks {
+		matches := true
+		for key, value := range labels {
+			if task.Labels[key] != value {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			count++
+		}
+	}
+	return count
 }
 
 func (a *Autoscaler) calcAgents(ctx context.Context) (float64, error) {

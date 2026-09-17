@@ -2,6 +2,11 @@
 
 Scale your woodpecker agents automatically to the moon and back based on the current load.
 
+When `WOODPECKER_AGENT_LABELS` is set, capacity calculations only include queue
+tasks matching those labels. Global workers are excluded because they may belong
+to a differently labelled pool and cannot necessarily execute the matching
+tasks. This allows multiple specialized agent pools to scale independently.
+
 ## Usage
 
 If you are using docker-compose you can add the following to your `docker-compose.yml` file:

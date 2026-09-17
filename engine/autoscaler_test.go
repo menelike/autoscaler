@@ -20,6 +20,8 @@ type MockClient struct {
 	running       int
 	pending       int
 	waitingOnDeps int
+	runningTasks  []woodpecker.Task
+	pendingTasks  []woodpecker.Task
 	woodpecker.Client
 }
 
@@ -31,19 +33,25 @@ func (m MockClient) QueueInfo() (*woodpecker.Info, error) {
 	info.Stats.Pending = m.pending
 	info.Stats.WaitingOnDeps = m.waitingOnDeps
 
-	info.Pending = []woodpecker.Task{
-		{
-			Labels: map[string]string{
-				"arch": "amd64",
+	info.Pending = m.pendingTasks
+	if info.Pending == nil {
+		info.Pending = []woodpecker.Task{
+			{
+				Labels: map[string]string{
+					"arch": "amd64",
+				},
 			},
-		},
+		}
 	}
-	info.Running = []woodpecker.Task{
-		{
-			Labels: map[string]string{
-				"arch": "amd64",
+	info.Running = m.runningTasks
+	if info.Running == nil {
+		info.Running = []woodpecker.Task{
+			{
+				Labels: map[string]string{
+					"arch": "amd64",
+				},
 			},
-		},
+		}
 	}
 
 	return info, nil
@@ -152,6 +160,30 @@ func Test_getQueueInfo(t *testing.T) {
 		free, running, pending, _ := autoscaler.getQueueInfo(t.Context())
 		assert.Equal(t, 0, free)
 		assert.Equal(t, 0, running)
+		assert.Equal(t, 2, pending)
+	})
+
+	t.Run("filters tasks and ignores unrelated workers for labelled pools", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			client: &MockClient{
+				workers: 3,
+				runningTasks: []woodpecker.Task{
+					{Labels: map[string]string{"type": "cloud"}},
+					{Labels: map[string]string{"type": "on-premises"}},
+				},
+				pendingTasks: []woodpecker.Task{
+					{Labels: map[string]string{"type": "cloud"}},
+					{Labels: map[string]string{"type": "cloud", "arch": "arm64"}},
+					{Labels: map[string]string{"type": "on-premises"}},
+				},
+			},
+			config: &config.Config{ExtraAgentLabels: map[string]string{"type": "cloud"}},
+		}
+
+		free, running, pending, err := autoscaler.getQueueInfo(t.Context())
+		assert.NoError(t, err)
+		assert.Equal(t, 0, free)
+		assert.Equal(t, 1, running)
 		assert.Equal(t, 2, pending)
 	})
 }
