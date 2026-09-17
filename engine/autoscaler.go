@@ -349,12 +349,14 @@ func (a *Autoscaler) getQueueInfo(_ context.Context) (freeTasks, runningTasks, p
 	}
 
 	// Queue statistics are global and include agents and tasks from unrelated
-	// pools. When this pool declares labels, only count tasks it can execute and
-	// do not let a differently labelled agent satisfy its available capacity.
-	return 0,
-		countTasksMatchingLabels(queueInfo.Running, a.config.ExtraAgentLabels),
-		countTasksMatchingLabels(queueInfo.Pending, a.config.ExtraAgentLabels),
-		nil
+	// pools. When this pool declares labels, derive free capacity from its own
+	// schedulable agents and only count tasks it can execute.
+	running := countTasksMatchingLabels(queueInfo.Running, a.config.ExtraAgentLabels)
+	pending := countTasksMatchingLabels(queueInfo.Pending, a.config.ExtraAgentLabels)
+	free := len(a.getPoolAgents(true))*a.config.WorkflowsPerAgent - running
+	free = max(free, 0)
+
+	return free, running, pending, nil
 }
 
 func countTasksMatchingLabels(tasks []woodpecker.Task, labels map[string]string) int {

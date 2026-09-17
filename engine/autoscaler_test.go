@@ -145,6 +145,40 @@ func Test_calcAgents(t *testing.T) {
 		value, _ := autoscaler.calcAgents(t.Context())
 		assert.Equal(t, float64(2), value)
 	})
+
+	t.Run("should drain an idle agent from a labelled pool", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			client: &MockClient{},
+			config: &config.Config{
+				ExtraAgentLabels:  map[string]string{"type": "cloud"},
+				WorkflowsPerAgent: 1,
+				MaxAgents:         2,
+			},
+			agents: []*woodpecker.Agent{{Name: "pool-1-agent-1111"}},
+		}
+
+		value, err := autoscaler.calcAgents(t.Context())
+		assert.NoError(t, err)
+		assert.Equal(t, float64(-1), value)
+	})
+
+	t.Run("should use idle capacity from an existing labelled pool agent", func(t *testing.T) {
+		autoscaler := Autoscaler{
+			client: &MockClient{
+				pendingTasks: []woodpecker.Task{{Labels: map[string]string{"type": "cloud"}}},
+			},
+			config: &config.Config{
+				ExtraAgentLabels:  map[string]string{"type": "cloud"},
+				WorkflowsPerAgent: 1,
+				MaxAgents:         2,
+			},
+			agents: []*woodpecker.Agent{{Name: "pool-1-agent-1111"}},
+		}
+
+		value, err := autoscaler.calcAgents(t.Context())
+		assert.NoError(t, err)
+		assert.Equal(t, float64(0), value)
+	})
 }
 
 func Test_getQueueInfo(t *testing.T) {
